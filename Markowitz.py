@@ -10,6 +10,7 @@ import gurobipy as gp
 import argparse
 import warnings
 import sys
+import grader
 
 """
 Project Setup
@@ -62,7 +63,10 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
+        num_assets = len(assets)
+        weights = 1 / num_assets
 
+        self.portfolio_weights[assets] = weights
         """
         TODO: Complete Task 1 Above
         """
@@ -113,8 +117,22 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
+        returns = df[assets].pct_change().fillna(0)
 
+        # 計算滾動波動率 (ddof=0 保持與正解一致)
+        rolling_vol = returns.rolling(self.lookback).std(ddof=0).shift(1)
+        
 
+        # inverse-volatility 權重
+        inv_vol = 1 / rolling_vol
+
+        # 正規化權重，使每列 sum=1
+        weights = inv_vol.div(inv_vol.sum(axis=1), axis=0).fillna(0)
+        
+        # 填入 portfolio_weights
+        self.portfolio_weights[assets] = weights
+        self.portfolio_weights.iloc[:self.lookback + 1] = 0.0
+        self.portfolio_weights[self.exclude] = 0.0
 
         """
         TODO: Complete Task 2 Above
@@ -122,6 +140,7 @@ class RiskParityPortfolio:
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
+       
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
@@ -190,8 +209,14 @@ class MeanVariancePortfolio:
 
                 # Sample Code: Initialize Decision w and the Objective
                 # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # decision variable
+                w = model.addMVar(n, lb=0, ub=1, name="w")
+                mean_term = mu @ w
+                risk_term = w @ Sigma @ w
+                model.setObjective(mean_term - (gamma / 2) * risk_term, gp.GRB.MAXIMIZE)
+
+                # constraint: sum(w) = 1
+                model.addConstr(w.sum() == 1)
 
                 """
                 TODO: Complete Task 3 Above

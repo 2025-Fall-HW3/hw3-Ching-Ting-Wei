@@ -51,33 +51,57 @@ class MyPortfolio:
     NOTE: You can modify the initialization function
     """
 
-    def __init__(self, price, exclude, lookback=50, gamma=0):
+class MyPortfolio:
+    def __init__(self, price, exclude="SPY", lookback=120, top_n=5):
         self.price = price
         self.returns = price.pct_change().fillna(0)
         self.exclude = exclude
         self.lookback = lookback
-        self.gamma = gamma
+        self.top_n = top_n
 
     def calculate_weights(self):
-        # Get the assets by excluding the specified column
         assets = self.price.columns[self.price.columns != self.exclude]
+        self.portfolio_weights = pd.DataFrame(index=self.price.index, columns=self.price.columns)
 
-        # Calculate the portfolio weights
-        self.portfolio_weights = pd.DataFrame(
-            index=self.price.index, columns=self.price.columns
-        )
+        idx = self.price.index
+        # 每月重平衡
+        rebal_dates = idx.to_series().groupby([idx.year, idx.month]).first().values
 
-        """
-        TODO: Complete Task 4 Below
-        """
-        
-        
-        """
-        TODO: Complete Task 4 Above
-        """
+        for i, date in enumerate(rebal_dates):
+            pos = self.price.index.get_loc(date)
+            start = max(0, pos - self.lookback)
+            window = self.returns.iloc[start:pos][assets]
+
+            # 計算平均報酬
+            mean_ret = window.mean()
+
+            # 選出 top_n
+            top_assets = mean_ret.sort_values(ascending=False).iloc[:self.top_n].index
+
+            # 權重 = 平均報酬正值比例
+            weights = mean_ret[top_assets].clip(lower=0)
+            if weights.sum() > 0:
+                w = weights / weights.sum()
+            else:
+                w = pd.Series(1/self.top_n, index=top_assets)
+
+            # full 權重
+            full = pd.Series(0.0, index=self.price.columns)
+            full.loc[top_assets] = w
+            full[self.exclude] = 0.0
+
+            # 填入當月
+            if i + 1 < len(rebal_dates):
+                next_date = rebal_dates[i+1]
+            else:
+                next_date = self.price.index[-1] + pd.Timedelta(days=1)
+            mask = (self.price.index >= date) & (self.price.index < next_date)
+            for col in self.price.columns:
+                self.portfolio_weights.loc[mask, col] = full[col]
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
+
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
